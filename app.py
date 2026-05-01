@@ -15,9 +15,11 @@ def load_artifacts():
 def main():
     arts = load_artifacts()
     st.title("🗄️ SQL & Data Engineering Pipeline")
+    dataset_key = arts.get("dataset_key", "unknown")
     st.markdown("Warehouse-style pipeline with raw, staging, fact, and mart layers built in DuckDB with data-quality checks and KPI outputs.")
+    st.caption(f"Dataset mode: {dataset_key}")
 
-    tabs = st.tabs(["Overview", "Data Quality", "Monthly KPIs", "Segment Performance", "Raw vs Staging"])
+    tabs = st.tabs(["Overview", "Data Quality", "Monthly KPIs", "Segment Performance", "Weather Impact", "Raw vs Staging"])
 
     with tabs[0]:
         counts = arts["row_counts"]
@@ -35,17 +37,52 @@ def main():
 
     with tabs[2]:
         monthly = arts["monthly_kpis"]
-        fig = px.line(monthly, x="order_month", y=["revenue", "orders", "active_customers"], title="Monthly KPI Trends", template=TEMPLATE)
-        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("**Volume KPIs (linear scale)**")
+        fig_counts = px.line(
+            monthly,
+            x="order_month",
+            y=["orders", "active_customers"],
+            title="Orders & Active Customers",
+            template=TEMPLATE,
+        )
+        st.plotly_chart(fig_counts, use_container_width=True)
+
+        st.markdown("**Revenue KPI (linear scale)**")
+        fig_revenue = px.line(
+            monthly,
+            x="order_month",
+            y=["revenue"],
+            title="Revenue Trend",
+            template=TEMPLATE,
+        )
+        st.plotly_chart(fig_revenue, use_container_width=True)
         st.dataframe(monthly, use_container_width=True, hide_index=True)
 
     with tabs[3]:
         seg = arts["segment_performance"]
-        fig = px.treemap(seg, path=["segment", "country", "product_category"], values="revenue", color="avg_order_value", color_continuous_scale="Blues")
+        if "segment" in seg.columns:
+            fig = px.treemap(seg, path=["segment", "country", "product_category"], values="revenue", color="avg_order_value", color_continuous_scale="Blues")
+        else:
+            fig = px.treemap(seg, path=["payment_channel", "pickup_zone"], values="revenue", color="avg_order_value", color_continuous_scale="Blues")
         st.plotly_chart(fig, use_container_width=True)
         st.dataframe(seg, use_container_width=True, hide_index=True)
 
     with tabs[4]:
+        weather = arts.get("weather_impact", pd.DataFrame())
+        if weather is None or weather.empty:
+            st.info("Weather join output is unavailable in fallback mode.")
+        else:
+            fig_wx = px.line(
+                weather,
+                x="order_month",
+                y=["revenue", "avg_precip_mm"],
+                title="Revenue vs Precipitation by Month",
+                template=TEMPLATE,
+            )
+            st.plotly_chart(fig_wx, use_container_width=True)
+            st.dataframe(weather, use_container_width=True, hide_index=True)
+
+    with tabs[5]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Raw Orders Sample**")
