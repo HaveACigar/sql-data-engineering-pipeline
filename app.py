@@ -6,18 +6,30 @@ import streamlit as st
 st.set_page_config(page_title="SQL & Data Engineering Pipeline", page_icon="🗄️", layout="wide", initial_sidebar_state="collapsed")
 TEMPLATE = "plotly_dark"
 
-TAB_TAKEAWAYS = {
-    "overview": "Row-count transparency validates reporting completeness so stakeholders can trust the KPI denominator.",
-    "quality": "Data-quality exceptions quantify governance risk and indicate where remediation has the highest reporting impact.",
-    "kpis": "Monthly KPI movement identifies where growth and margin pressure diverge, enabling earlier course correction.",
-    "segment": "Segment and zone performance surfaces concentration risk and where commercial levers can shift revenue mix.",
-    "weather": "Weather-linked performance shows exogenous demand sensitivity, improving operational planning resilience.",
-    "raw": "Raw-vs-staging comparisons prove transformation value and improve confidence in downstream analytics outputs.",
-}
+def build_takeaways(arts: dict) -> dict:
+    counts = arts["row_counts"]
+    tests = arts["tests"]
+    monthly = arts["monthly_kpis"]
+    total_orders = int(counts.get("fct_orders", 0))
+    failed_tests = sum(1 for v in tests.values() if float(v) > 0)
+
+    if len(monthly) >= 2:
+        rev_delta_pct = ((float(monthly["revenue"].iloc[-1]) - float(monthly["revenue"].iloc[0])) / max(float(monthly["revenue"].iloc[0]), 1e-9)) * 100
+    else:
+        rev_delta_pct = 0.0
+
+    return {
+        "overview": f"Current warehouse footprint is {total_orders:,} fact records, providing enough scale for trend-based commercial decisions.",
+        "quality": f"{failed_tests} data-quality checks currently show non-zero exceptions, indicating where governance remediation should be prioritized first.",
+        "kpis": f"Revenue moved {rev_delta_pct:.1f}% across the observed window, framing whether topline momentum is accelerating or softening.",
+        "segment": "Segment and zone breakdowns identify concentration risk and where pricing, channel, or market actions can shift revenue mix.",
+        "weather": "Weather-linked sensitivity quantifies external demand pressure so operations can adjust plans before service degradation.",
+        "raw": "Raw-to-staging comparisons evidence transformation impact and strengthen confidence in executive KPI reporting.",
+    }
 
 
-def render_takeaway(key: str) -> None:
-    st.info(f"Shareholder Takeaway: {TAB_TAKEAWAYS[key]}")
+def render_takeaway(key: str, takeaways: dict) -> None:
+    st.info(f"Shareholder Takeaway: {takeaways[key]}")
 
 
 @st.cache_resource
@@ -27,6 +39,7 @@ def load_artifacts():
 
 def main():
     arts = load_artifacts()
+    takeaways = build_takeaways(arts)
     st.title("🗄️ SQL & Data Engineering Pipeline")
     dataset_key = arts.get("dataset_key", "unknown")
     st.markdown("Warehouse-style pipeline with raw, staging, fact, and mart layers built in DuckDB with data-quality checks and KPI outputs.")
@@ -35,7 +48,7 @@ def main():
     tabs = st.tabs(["Overview", "Data Quality", "Monthly KPIs", "Segment Performance", "Weather Impact", "Raw vs Staging"])
 
     with tabs[0]:
-        render_takeaway("overview")
+        render_takeaway("overview", takeaways)
         counts = arts["row_counts"]
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Raw Customers", f"{counts['raw_customers']:,}")
@@ -44,14 +57,14 @@ def main():
         c4.metric("Fact Orders", f"{counts['fct_orders']:,}")
 
     with tabs[1]:
-        render_takeaway("quality")
+        render_takeaway("quality", takeaways)
         test_df = pd.DataFrame(list(arts["tests"].items()), columns=["test", "value"])
         st.dataframe(test_df, use_container_width=True, hide_index=True)
         fig = px.bar(test_df, x="test", y="value", color="value", color_continuous_scale="RdYlGn_r", title="Data Quality Test Results", template=TEMPLATE)
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[2]:
-        render_takeaway("kpis")
+        render_takeaway("kpis", takeaways)
         monthly = arts["monthly_kpis"]
         st.markdown("**Volume KPIs (linear scale)**")
         fig_counts = px.line(
@@ -75,7 +88,7 @@ def main():
         st.dataframe(monthly, use_container_width=True, hide_index=True)
 
     with tabs[3]:
-        render_takeaway("segment")
+        render_takeaway("segment", takeaways)
         seg = arts["segment_performance"]
         if "segment" in seg.columns:
             fig = px.treemap(seg, path=["segment", "country", "product_category"], values="revenue", color="avg_order_value", color_continuous_scale="Blues")
@@ -85,7 +98,7 @@ def main():
         st.dataframe(seg, use_container_width=True, hide_index=True)
 
     with tabs[4]:
-        render_takeaway("weather")
+        render_takeaway("weather", takeaways)
         weather = arts.get("weather_impact", pd.DataFrame())
         if weather is None or weather.empty:
             st.info("Weather join output is unavailable in fallback mode.")
@@ -101,7 +114,7 @@ def main():
             st.dataframe(weather, use_container_width=True, hide_index=True)
 
     with tabs[5]:
-        render_takeaway("raw")
+        render_takeaway("raw", takeaways)
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Raw Orders Sample**")
